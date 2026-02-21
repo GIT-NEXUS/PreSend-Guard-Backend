@@ -11,7 +11,7 @@ import lombok.Setter;
 @NoArgsConstructor
 @Entity
 @Table(name = "prompt")
-public class Prompt {
+public class Prompt extends TimeStamped {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)       // DB가 알아서 id값 생성 각프롬프트의 고유 번호 1,2,3...
