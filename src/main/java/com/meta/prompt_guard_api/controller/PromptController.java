@@ -19,7 +19,7 @@ public class PromptController {
 
     @PostMapping("/analyze")
     public ResponseEntity<PromptResponseDto> analyze(@RequestBody PromptRequestDto dto){
-        PromptResponseDto response = promptService.analyze(dto);
-        return ResponseEntity.ok(response);
+        PromptResponseDto promptResponseDto = promptService.analyze(dto);
+        return ResponseEntity.ok(promptResponseDto);
     }
 }
