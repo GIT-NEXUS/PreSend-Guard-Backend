@@ -1,5 +1,6 @@
 package com.meta.prompt_guard_api.controller;
 
+
 import com.meta.prompt_guard_api.dto.PromptRequestDto;
 import com.meta.prompt_guard_api.dto.PromptResponseDto;
 import com.meta.prompt_guard_api.service.PromptService;
@@ -22,4 +23,9 @@ public class PromptController {
         PromptResponseDto promptResponseDto = promptService.analyze(dto);
         return ResponseEntity.ok(promptResponseDto);
     }
+
+
+public class PromptController {
+
+
 }
