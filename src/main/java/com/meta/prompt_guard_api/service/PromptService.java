@@ -49,9 +49,9 @@ public class PromptService {
                 for (NerEntityDto entity : nerResult.getEntities()) {
                     String label = entity.getLabel();
 
-                    if ("PS".equals(label)) nerName++;
-                    if ("OG".equals(label)) nerOrg++;
-                    if ("LC".equals(label)) nerLoc++;
+                    if ("PER".equals(label)) nerName++;
+                    if ("ORG".equals(label)) nerOrg++;
+                    if ("LOC".equals(label)) nerLoc++;
                 }
             }
         } catch (Exception e) {
@@ -113,3 +113,4 @@ public class PromptService {
         return c;
     }
 }
+

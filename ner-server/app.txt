@@ -1,0 +1,42 @@
+# from fastapi import FastAPI
+# from pydantic import BaseModel
+# from transformers import pipeline
+#
+# app = FastAPI()
+#
+# # 공개 NER 모델 불러오기
+# # 처음 실행할 때는 모델 다운로드 때문에 시간이 조금 걸릴 수 있음
+# ner_pipeline = pipeline(
+#     "ner",
+#     model="dslim/bert-base-NER",
+#     aggregation_strategy="simple"
+# )
+#
+# class AnalyzeRequest(BaseModel):
+#     text: str
+#
+# @app.get("/")
+# def root():
+#     return {"message": "NER server is running"}
+#
+# @app.post("/analyze")
+# def analyze(req: AnalyzeRequest):
+#     text = req.text
+#
+#     results = ner_pipeline(text)
+#
+#     entities = []
+#     for item in results:
+#         entities.append({
+#             "text": item["word"],
+#             "label": item["entity_group"],
+#             "score": round(float(item["score"]), 4),
+#             "start": item["start"],
+#             "end": item["end"]
+#         })
+#
+#     return {
+#         "message": "NER 분석 완료",
+#         "input_text": text,
+#         "entities": entities
+#     }
