@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.meta.prompt_guard_api.domain.Prompt;
 import com.meta.prompt_guard_api.domain.Verdict;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,6 +43,7 @@ public class PromptService {
         int nerName = 0;
         int nerOrg = 0;
         int nerLoc = 0;
+        List<String> nerMaskTargets = new ArrayList<>();
 
         try {
             NerResponseDto nerResult = nerService.analyze(text);
@@ -49,9 +52,9 @@ public class PromptService {
                 for (NerEntityDto entity : nerResult.getEntities()) {
                     String label = entity.getLabel();
 
-                    if ("PER".equals(label)) nerName++;
-                    if ("ORG".equals(label)) nerOrg++;
-                    if ("LOC".equals(label)) nerLoc++;
+                    if ("PS".equals(label)) { nerName++; nerMaskTargets.add(entity.getText()); }
+                    if ("OG".equals(label)) { nerOrg++; nerMaskTargets.add(entity.getText()); }
+                    if ("LC".equals(label)) { nerLoc++; nerMaskTargets.add(entity.getText()); }
                 }
             }
         } catch (Exception e) {
@@ -84,6 +87,10 @@ public class PromptService {
             masked = masked.replaceAll("(01[016789])[-\\s]?(\\d{3,4})[-\\s]?(\\d{4})", "$1-****-****");
             masked = masked.replaceAll("([A-Za-z0-9])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})", "$1***$3");
             masked = masked.replaceAll("(\\d{6})-?(\\d{7})", "$1-*******");
+
+            for (String target : nerMaskTargets) {
+                masked = masked.replace(target, "***");
+            }
         }
 
         if(!action .equals("ALLOW")) {
