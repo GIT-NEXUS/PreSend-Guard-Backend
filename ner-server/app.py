@@ -4,7 +4,6 @@ from transformers import pipeline
 
 app = FastAPI()
 
-# 공개 NER 모델 불러오기
 # 처음 실행할 때는 모델 다운로드 때문에 시간이 조금 걸릴 수 있음
 ner_pipeline = pipeline(
     "ner",
@@ -25,15 +24,16 @@ def analyze(req: AnalyzeRequest):
 
     results = ner_pipeline(text)
 
-    entities = []
-    for item in results:
-        entities.append({
+    entities = [
+        {
             "text": item["word"],
             "label": item["entity_group"],
             "score": round(float(item["score"]), 4),
             "start": item["start"],
-            "end": item["end"]
-        })
+            "end": item["end"],
+        }
+        for item in results
+    ]
 
     return {
         "message": "NER 분석 완료",
