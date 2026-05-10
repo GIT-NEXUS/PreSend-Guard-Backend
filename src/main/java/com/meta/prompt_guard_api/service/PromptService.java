@@ -7,9 +7,15 @@ import com.meta.prompt_guard_api.ner.NerResponseDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.meta.prompt_guard_api.domain.Prompt;
+import com.meta.prompt_guard_api.domain.Verdict;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+
 
 @Service
 @RequiredArgsConstructor
@@ -105,7 +111,15 @@ public class PromptService {
             masked = masked.replaceAll(PASSPORT, "**-*******");
         }
 
-        // TODO: DB 저장
+        if(!action .equals("ALLOW")) {
+            Prompt prompt = new Prompt(
+                masked,
+                Verdict.valueOf(action),
+                score,
+                "phone: " + phone + ", email: " + email + ", rrn: " + rrn
+            );
+            promptRepository.save(prompt);
+        }
 
         return new PromptResponseDto(
                 score, action, masked,
