@@ -84,8 +84,20 @@ def root():
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    results = ner_pipeline(req.text)
-    entities = parse_entities(results)
+    text = req.text
+
+    results = ner_pipeline(text)
+
+    entities = [
+        {
+            "text": item["word"],
+            "label": item["entity_group"],
+            "score": round(float(item["score"]), 4),
+            "start": item["start"],
+            "end": item["end"],
+        }
+        for item in results
+    ]
 
     return {
         "message": "NER 분석 완료",
