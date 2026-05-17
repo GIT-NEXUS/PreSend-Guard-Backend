@@ -1,162 +1,173 @@
+import re
+import urllib.request
+
 from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import pipeline
-import re
+from transformers import (
+    AutoModelForTokenClassification,
+    AutoTokenizer,
+    pipeline,
+)
 
 app = FastAPI()
 
-ner_pipeline = pipeline(
-    "ner",
-    model="Leo97/KoELECTRA-small-v3-modu-ner"
+KPF_LABELS_URL = (
+    "https://raw.githubusercontent.com/KPF-bigkinds/BIGKINDS-LAB/"
+    "main/KPF-BERT-NER/label.py"
 )
 
-PII_LABELS = {"PS", "OG", "LC"}
 
-LABEL_KO = {
-    "PS": "사람이름",
-    "OG": "기관/학교/회사/부서명",
-    "LC": "지역명",
-    "JB": "직업/직위",
+def load_kpf_labels():
+    with urllib.request.urlopen(KPF_LABELS_URL, timeout=30) as resp:
+        src = resp.read().decode("utf-8")
+    namespace = {}
+    exec(src, namespace)
+    return namespace["labels"]
+
+
+_labels = load_kpf_labels()
+_id2label = {i: l for i, l in enumerate(_labels)}
+_label2id = {l: i for i, l in _id2label.items()}
+
+_model = AutoModelForTokenClassification.from_pretrained(
+    "KPF/KPF-bert-ner",
+    num_labels=len(_labels),
+    id2label=_id2label,
+    label2id=_label2id,
+)
+_tokenizer = AutoTokenizer.from_pretrained("KPF/KPF-bert-ner")
+
+ner_pipeline = pipeline(
+    "ner",
+    model=_model,
+    tokenizer=_tokenizer,
+    aggregation_strategy="simple",
+)
+
+PII_LABEL_MAP = {
+    # 사람이름
+    "PS_NAME": "사람이름",
+    # 학교
+    "OGG_EDUCATION": "학교명",
+    # 회사
+    "OGG_ECONOMY": "회사명",
+    # 기관
+    "OGG_POLITICS": "기관명",
+    "OGG_MEDICINE": "기관명",
+    "OGG_LAW": "기관명",
+    "OGG_RELIGION": "기관명",
+    "OGG_MEDIA": "기관명",
+    "OGG_ART": "기관명",
+    "OGG_SPORTS": "기관명",
+    "OGG_SCIENCE": "기관명",
+    "OGG_LIBRARY": "기관명",
+    "OGG_HOTEL": "기관명",
+    "OGG_FOOD": "기관명",
+    "OGG_MILITARY": "기관명",
+    "OGG_OTHERS": "기관명",
+    # 지역
+    "LCP_COUNTRY": "지역명",
+    "LCP_PROVINCE": "지역명",
+    "LCP_COUNTY": "지역명",
+    "LCP_CITY": "지역명",
+    "LCP_CAPITALCITY": "지역명",
+    # 직업/직위
+    "CV_POSITION": "직위",
+    "CV_OCCUPATION": "직업",
 }
 
-# 긴 키워드가 먼저 매칭되도록 길이 내림차순 정렬
-JOB_KEYWORDS = sorted([
-    # 임원/직책
-    "대표이사", "최고경영자", "부대표", "부회장", "부사장", "전무이사", "상무이사", "전무", "상무",
-    "회장", "사장", "이사", "감사", "고문", "자문",
-    "본부장", "부장", "차장", "과장", "대리", "주임", "사원",
-    "팀장", "실장", "센터장", "원장", "단장", "국장", "처장", "소장",
-    # 교육직
-    "총장", "부총장", "학장", "교수", "부교수", "조교수", "강사", "조교",
-    "교장", "교감", "교사", "선생님", "선생",
-    # 전문직
-    "외과의사", "내과의사", "한의사", "치과의사", "수의사", "의사",
-    "간호사", "약사", "변호사", "검사", "판사", "변리사",
-    "회계사", "세무사", "감정평가사", "공인중개사", "노무사", "건축사",
-    # 공직/정치
-    "국무총리", "대통령", "장관", "차관", "청장",
-    "도지사", "구청장", "군수", "시장",
-    "국회의원", "시의원", "도의원", "구의원", "의원",
-    "소방청장", "소방서장", "소방관",
-    "경찰청장", "경찰서장", "경찰관", "경찰",
-    "군인", "장교", "공무원",
-    # 언론/문화/IT
-    "아나운서", "기자", "소설가", "시인", "화가", "배우", "가수", "감독", "작가",
-    "엔지니어", "개발자", "디자이너", "기획자", "분석가", "연구원", "연구사",
-    "사회복지사", "상담사",
+# 긴 접미사가 먼저 매칭되도록 정렬
+DEPT_SUFFIXES = sorted([
+    "사업본부", "개발본부", "사업부", "개발실", "기획실", "연구실",
+    "디자인실", "디자인팀", "연구소", "영업소",
+    "본부", "팀", "센터", "지점", "지사", "파트", "그룹",
 ], key=len, reverse=True)
+
+DEPT_PATTERN = re.compile(
+    r"([가-힣A-Za-z0-9]{1,15})(" + "|".join(map(re.escape, DEPT_SUFFIXES)) + r")"
+)
+
 
 class AnalyzeRequest(BaseModel):
     text: str
 
-BIO_TAGS = {"B", "I", "E", "S"}
 
-def parse_entities(results):
-    entities = []
-    current = None
+MASK_TOKEN = "***"
 
-    for item in results:
-        raw_label = item["entity"]
-        if "-" not in raw_label:
-            if current:
-                entities.append(current)
-                current = None
+
+def mask_text(text: str, entities: list) -> str:
+    # entities는 start 오름차순 정렬돼 있고 서로 겹치지 않음을 가정
+    result = []
+    cursor = 0
+    for e in entities:
+        start, end = e["start"], e["end"]
+        if start < cursor:  # 안전망: 겹치면 건너뜀
             continue
+        result.append(text[cursor:start])
+        result.append(MASK_TOKEN)
+        cursor = end
+    result.append(text[cursor:])
+    return "".join(result)
 
-        entity_type, bio = raw_label.rsplit("-", 1)
-        # TYPE-B 형식이면 그대로, B-TYPE 형식이면 swap
-        if bio not in BIO_TAGS:
-            entity_type, bio = bio, entity_type
-        if bio not in BIO_TAGS:
-            if current:
-                entities.append(current)
-                current = None
-            continue
 
-        word = item["word"].replace("##", "")
-
-        if bio in ("B", "S"):
-            if current:
-                entities.append(current)
-            current = {
-                "text": word,
-                "label": entity_type,
-                "score": round(float(item["score"]), 4),
-                "start": item["start"],
-                "end": item["end"]
-            }
-            if bio == "S":
-                entities.append(current)
-                current = None
-        elif bio in ("I", "E") and current and current["label"] == entity_type:
-            current["text"] += word
-            current["end"] = item["end"]
-            current["score"] = round((current["score"] + float(item["score"])) / 2, 4)
-            if bio == "E":
-                entities.append(current)
-                current = None
-        else:
-            if current:
-                entities.append(current)
-            current = None
-
-    if current:
-        entities.append(current)
-
-    # 인접한 동일 타입 엔티티 병합 (글자 단위 분리 보정)
-    merged = []
-    for entity in entities:
-        if merged and merged[-1]["label"] == entity["label"] and merged[-1]["end"] == entity["start"]:
-            merged[-1]["text"] += entity["text"]
-            merged[-1]["end"] = entity["end"]
-            merged[-1]["score"] = round((merged[-1]["score"] + entity["score"]) / 2, 4)
-        else:
-            merged.append(entity)
-
-    return merged
-
-def find_job_entities(text: str) -> list:
-    covered = []  # (start, end) 범위 추적으로 중복 매칭 방지
+def find_dept_entities(text: str) -> list:
+    covered = []
     entities = []
-
-    for keyword in JOB_KEYWORDS:
-        for m in re.finditer(re.escape(keyword), text):
-            start, end = m.start(), m.end()
-            if any(s <= start < e or s < end <= e for s, e in covered):
-                continue
-            covered.append((start, end))
-            entities.append({
-                "text": keyword,
-                "label": "JB",
-                "label_ko": "직업/직위",
-                "score": 1.0,
-                "start": start,
-                "end": end,
-            })
-
+    for m in DEPT_PATTERN.finditer(text):
+        start, end = m.start(), m.end()
+        if any(s <= start < e or s < end <= e for s, e in covered):
+            continue
+        # 최소 길이 2 (한 글자 부서명은 노이즈 가능성 높음)
+        if end - start < 2:
+            continue
+        covered.append((start, end))
+        entities.append({
+            "text": text[start:end],
+            "label": "DEPT",
+            "label_ko": "부서명",
+            "score": 1.0,
+            "start": start,
+            "end": end,
+        })
     return entities
+
 
 @app.get("/")
 def root():
     return {"message": "NER server is running"}
 
+
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    results = ner_pipeline(req.text)
-    entities = parse_entities(results)
+    text = req.text
+    results = ner_pipeline(text)
 
-    pii_entities = [
-        {**e, "label_ko": LABEL_KO.get(e["label"], e["label"])}
-        for e in entities
-        if e["label"] in PII_LABELS
+    pii_entities = []
+    for e in results:
+        label = e["entity_group"]
+        if label not in PII_LABEL_MAP:
+            continue
+        start, end = int(e["start"]), int(e["end"])
+        pii_entities.append({
+            "text": text[start:end],
+            "label": label,
+            "label_ko": PII_LABEL_MAP[label],
+            "score": round(float(e["score"]), 4),
+            "start": start,
+            "end": end,
+        })
+
+    pii_ranges = [(e["start"], e["end"]) for e in pii_entities]
+    dept_entities = [
+        d for d in find_dept_entities(text)
+        if not any(s <= d["start"] < e or s < d["end"] <= e for s, e in pii_ranges)
     ]
 
-    job_entities = find_job_entities(req.text)
-
-    all_entities = sorted(pii_entities + job_entities, key=lambda x: x["start"])
+    all_entities = sorted(pii_entities + dept_entities, key=lambda x: x["start"])
 
     return {
         "message": "NER 분석 완료",
-        "input_text": req.text,
-        "entities": all_entities
+        "input_text": text,
+        "entities": all_entities,
+        "masked_text": mask_text(text, all_entities),
     }

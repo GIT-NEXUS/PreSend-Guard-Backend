@@ -11,8 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.meta.prompt_guard_api.domain.Prompt;
 import com.meta.prompt_guard_api.domain.Verdict;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,18 +41,26 @@ public class PromptService {
         int nerName = 0;
         int nerOrg = 0;
         int nerLoc = 0;
-        List<String> nerMaskTargets = new ArrayList<>();
+        int nerOther = 0; // 직업/직위/부서 등
+        String nerMaskedText = text;
 
         try {
             NerResponseDto nerResult = nerService.analyze(text);
 
-            if (nerResult != null && nerResult.getEntities() != null) {
-                for (NerEntityDto entity : nerResult.getEntities()) {
-                    String label = entity.getLabel();
+            if (nerResult != null) {
+                if (nerResult.getMasked_text() != null) {
+                    nerMaskedText = nerResult.getMasked_text();
+                }
+                if (nerResult.getEntities() != null) {
+                    for (NerEntityDto entity : nerResult.getEntities()) {
+                        String label = entity.getLabel();
+                        if (label == null) continue;
 
-                    if ("PS".equals(label)) { nerName++; nerMaskTargets.add(entity.getText()); }
-                    if ("OG".equals(label)) { nerOrg++; nerMaskTargets.add(entity.getText()); }
-                    if ("LC".equals(label)) { nerLoc++; nerMaskTargets.add(entity.getText()); }
+                        if (label.startsWith("PS_")) nerName++;
+                        else if (label.startsWith("OGG_")) nerOrg++;
+                        else if (label.startsWith("LCP_")) nerLoc++;
+                        else nerOther++;
+                    }
                 }
             }
         } catch (Exception e) {
@@ -64,7 +70,7 @@ public class PromptService {
         // regex + NER 결과 합치기
         boolean hasPii =
                 phone > 0 || email > 0 || rrn > 0 ||
-                        nerName > 0 || nerOrg > 0 || nerLoc > 0;
+                        nerName > 0 || nerOrg > 0 || nerLoc > 0 || nerOther > 0;
 
         int score = 0;
         if (hasPii) {
@@ -74,7 +80,8 @@ public class PromptService {
                             rrn * 80 +
                             nerName * 15 +
                             nerOrg * 10 +
-                            nerLoc * 10,
+                            nerLoc * 10 +
+                            nerOther * 5,
                     100
             );
         }
@@ -84,13 +91,12 @@ public class PromptService {
         String masked = text;
 
         if (!action.equals("ALLOW")) {
+            // 1) NER 마스킹 결과를 베이스로
+            masked = nerMaskedText;
+            // 2) 정규식 마스킹은 그 위에 덧입힘 (NER이 안 잡는 전화/이메일/RRN)
             masked = masked.replaceAll("(01[016789])[-\\s]?(\\d{3,4})[-\\s]?(\\d{4})", "$1-****-****");
             masked = masked.replaceAll("([A-Za-z0-9])([A-Za-z0-9._%+-]*)(@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})", "$1***$3");
             masked = masked.replaceAll("(\\d{6})-?(\\d{7})", "$1-*******");
-
-            for (String target : nerMaskTargets) {
-                masked = masked.replace(target, "***");
-            }
         }
 
         if(!action .equals("ALLOW")) {
