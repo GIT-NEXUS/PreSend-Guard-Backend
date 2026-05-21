@@ -10,8 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.meta.prompt_guard_api.domain.Prompt;
 import com.meta.prompt_guard_api.domain.Verdict;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 

@@ -11,4 +11,5 @@ public class NerResponseDto {
     private String message;
     private String input_text;
     private List<NerEntityDto> entities;
+    private String masked_text;
 }
