@@ -4,11 +4,13 @@ import com.meta.prompt_guard_api.dto.PromptRequestDto;
 import com.meta.prompt_guard_api.dto.PromptResponseDto;
 import com.meta.prompt_guard_api.ner.NerEntityDto;
 import com.meta.prompt_guard_api.ner.NerResponseDto;
+import com.meta.prompt_guard_api.repository.PromptRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.meta.prompt_guard_api.domain.Prompt;
 import com.meta.prompt_guard_api.domain.Verdict;
+
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,6 +22,7 @@ import java.util.regex.Pattern;
 public class PromptService {
 
     private final NerService nerService;
+    private final PromptRepository promptRepository;
 
     // ── Regex 패턴 ───────────────────────────────────────────────────────────
     private static final String PHONE    = "(01[016789])[\\-\\s]?(\\d{3,4})[\\-\\s]?(\\d{4})";
