@@ -49,8 +49,8 @@ public class PromptService {
         int rrn      = count(text, RRN);
         int card     = count(text, CARD);
         int bizReg   = count(text, BIZ_REG);
-        // 사업자등록번호 매칭분은 계좌번호에서 제외
-        int account  = Math.max(0, count(text, ACCOUNT) - bizReg);
+        // 전화번호/사업자등록번호 매칭분은 계좌번호에서 제외 (정규식 중복 매칭)
+        int account  = Math.max(0, count(text, ACCOUNT) - bizReg - phone);
         int ip       = count(text, IP);
         int passport = count(text, PASSPORT);
 
@@ -59,14 +59,17 @@ public class PromptService {
         int nerOrg  = 0;
         int nerLoc  = 0;
 
+        NerResponseDto nerResult = null;
         try {
-            NerResponseDto nerResult = nerService.analyze(text);
+            nerResult = nerService.analyze(text);
             if (nerResult != null && nerResult.getEntities() != null) {
                 for (NerEntityDto entity : nerResult.getEntities()) {
                     String label = entity.getLabel();
-                    if ("PER".equals(label)) nerName++;
-                    if ("ORG".equals(label)) nerOrg++;
-                    if ("LOC".equals(label)) nerLoc++;
+                    if (label == null) continue;
+                    // KPF NER 라벨 prefix 매칭 (PS_*=사람, CV_*=직위/직업, OGG_*/DEPT=조직/부서, LCP_*=지역)
+                    if (label.startsWith("PS") || label.startsWith("CV")) nerName++;
+                    else if (label.startsWith("OGG") || "DEPT".equals(label)) nerOrg++;
+                    else if (label.startsWith("LCP")) nerLoc++;
                 }
             }
         } catch (Exception e) {
@@ -101,6 +104,7 @@ public class PromptService {
         // ── 마스킹 ───────────────────────────────────────────────────────────
         String masked = text;
         if (!action.equals("ALLOW")) {
+            // 1) 정규식 PII 마스킹 (raw text 기준 — NER이 이메일/번호 일부를 오인식해 깨뜨리는 것 방지)
             masked = masked.replaceAll(PHONE,    "$1-****-****");
             masked = masked.replaceAll(EMAIL,    "****@****");
             masked = masked.replaceAll(RRN,      "******-*******");
@@ -110,6 +114,18 @@ public class PromptService {
             masked = masked.replaceAll(ACCOUNT,  "****-****-******");
             masked = masked.replaceAll(IP,       "*.*.*.*");
             masked = masked.replaceAll(PASSPORT, "**-*******");
+
+            // 2) NER 엔티티 텍스트 추가 마스킹 (사람이름/조직/지역/직위 등 — 긴 텍스트부터)
+            if (nerResult != null && nerResult.getEntities() != null) {
+                java.util.List<NerEntityDto> sorted = new java.util.ArrayList<>(nerResult.getEntities());
+                sorted.sort((a, b) -> Integer.compare(b.getText().length(), a.getText().length()));
+                for (NerEntityDto entity : sorted) {
+                    String t = entity.getText();
+                    if (t != null && !t.isEmpty()) {
+                        masked = masked.replace(t, "***");
+                    }
+                }
+            }
         }
 
         if(!action .equals("ALLOW")) {
