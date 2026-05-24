@@ -140,19 +140,30 @@ def root():
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
     text = req.text
-
     results = ner_pipeline(text)
 
-    entities = [
-        {
-            "text": item["word"],
-            "label": item["entity_group"],
-            "score": round(float(item["score"]), 4),
-            "start": item["start"],
-            "end": item["end"],
-        }
-        for item in results
+    pii_entities = []
+    for e in results:
+        label = e["entity_group"]
+        if label not in PII_LABEL_MAP:
+            continue
+        start, end = int(e["start"]), int(e["end"])
+        pii_entities.append({
+            "text": text[start:end],
+            "label": label,
+            "label_ko": PII_LABEL_MAP[label],
+            "score": round(float(e["score"]), 4),
+            "start": start,
+            "end": end,
+        })
+
+    pii_ranges = [(e["start"], e["end"]) for e in pii_entities]
+    dept_entities = [
+        d for d in find_dept_entities(text)
+        if not any(s <= d["start"] < e or s < d["end"] <= e for s, e in pii_ranges)
     ]
+
+    all_entities = sorted(pii_entities + dept_entities, key=lambda x: x["start"])
 
     return {
         "message": "NER 분석 완료",
